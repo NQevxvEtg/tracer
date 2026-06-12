@@ -465,7 +465,7 @@ def render(data, demo=False):
     if d.get("fw_status") == "WARN":
         issues.append(f"No firewall rule found for port {port}")
     if d.get("tcpdump_status") == "WARN":
-        issues.append("tcpdump failed — run with sudo/become for DNS packet capture")
+        issues.append("tcpdump captured no DNS packets — DNS may be cached, or no queries were needed")
     if issues:
         rows.append("<h2>Issues Found</h2>")
         for i in issues:

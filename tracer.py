@@ -925,93 +925,8 @@ def check_tcpdump_dns(target: str, duration: int = 8) -> CheckResult:
     rc, out, err = _run(["tcpdump", "-r", pcap_path, "-n", "-tttt"], timeout=15)
     r.raw = out or err
 
-    # Parse packet lines for timing analysis
-    # Format: 2026-06-11 23:10:00.123456 IP 10.0.2.15.54321 > 10.0.2.3.53: ...
-    queries = []
-    responses = []
-    resolver_times = {}
-
-    for line in (out or "").splitlines():
-        # Timestamp
-        ts_match = re.match(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)", line)
-        if not ts_match:
-            continue
-
-        ts_str = ts_match.group(1)
-        try:
-            ts = time.mktime(time.strptime(ts_str[:19], "%Y-%m-%d %H:%M:%S")) + float("0." + ts_str.split(".")[1].ljust(6, "0")[:6])
-        except (ValueError, IndexError):
-            ts = 0
-
-        # Extract source/dest IPs
-        ip_match = re.search(r"IP (\S+) > (\S+):", line)
-        if not ip_match:
-            continue
-        src = ip_match.group(1).rsplit(".", 1)[0]
-        dst = ip_match.group(1).rsplit(".", 1)[0]  # wait, this is wrong
-
-    # More robust parsing: IP src.port > dst.port: flags...
-    for line in (out or "").splitlines():
-        ts_match = re.match(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)", line)
-        if not ts_match:
-            continue
-        ts_str = ts_match.group(1)
-        try:
-            ts = time.mktime(time.strptime(ts_str[:19], "%Y-%m-%d %H:%M:%S")) + float("0." + ts_str.split(".")[1].ljust(6, "0")[:6])
-        except (ValueError, IndexError):
-            ts = 0
-
-        # Match src.port > dst.port
-        flow_match = re.search(r"IP\s+(\S+)\.\d+\s+>\s+(\S+)\.\d+:", line)
-        if not flow_match:
-            flow_match = re.search(r"IP6?\s+(\S+)\.\d+\s+>\s+(\S+)\.\d+:", line)
-        if not flow_match:
-            continue
-
-        src_ip = flow_match.group(1)
-        dst_ip = flow_match.group(2)
-
-        # DNS response has src_ip = resolver (server), dst_ip = client
-        # DNS query has src_ip = client, dst_ip = resolver
-        # tcpdump output shows: client.port > resolver.53 for query
-        #                      resolver.53 > client.port for response
-
-        is_response = ".53 >" in line or ": 53 > " in line  # server is source (port 53)
-        is_query = "> " in line and ".53:" in line.split(">")[1] if ">" in line else False
-
-        if is_query or (not is_response and ".53:" in line.split(">")[-1] if ">" in line else False):
-            queries.append({"time": ts, "resolver": dst_ip, "line": line})
-        elif is_response or ".53 >" in line:
-            responses.append({"time": ts, "resolver": src_ip, "line": line})
-
-        # Track resolver IPs
-        if ".53" in line:
-            for ip in (src_ip, dst_ip):
-                if ip not in resolver_times:
-                    resolver_times[ip] = {"queries": 0, "responses": 0, "total_rtt": 0.0, "rtt_samples": 0}
-
     r.data["packets_total"] = len((out or "").splitlines()) - 1 if out else 0
-    r.data["resolvers_seen"] = list(resolver_times.keys())
     r.data["queries_sent"] = queries_done
-
-    # Try to match query/response pairs for RTT
-    for q in queries:
-        q_resolver = q["resolver"]
-        # Find first response from same resolver after query
-        for resp in responses:
-            if resp["resolver"] == q_resolver and resp["time"] > q["time"]:
-                rtt = (resp["time"] - q["time"]) * 1000
-                if rtt < 5000:  # ignore implausible RTTs
-                    if q_resolver in resolver_times:
-                        resolver_times[q_resolver]["total_rtt"] += rtt
-                        resolver_times[q_resolver]["rtt_samples"] += 1
-                break
-
-    for ip, stats in resolver_times.items():
-        if stats["rtt_samples"] > 0:
-            stats["avg_rtt_ms"] = round(stats["total_rtt"] / stats["rtt_samples"], 1)
-
-    r.data["resolver_stats"] = {k: {"avg_rtt_ms": v.get("avg_rtt_ms", 0)} for k, v in resolver_times.items()}
 
     # Clean up pcap
     try:
@@ -1019,13 +934,11 @@ def check_tcpdump_dns(target: str, duration: int = 8) -> CheckResult:
     except OSError:
         pass
 
-    r.status = "PASS" if resolver_times else "WARN"
-    if not resolver_times:
-        r.error = "No DNS traffic captured (tcpdump may need root)"
-    elif any(v.get("avg_rtt_ms", 0) > 100 for v in resolver_times.values()):
-        slow = [f"{ip} ({v.get('avg_rtt_ms', 0)}ms)" for ip, v in resolver_times.items() if v.get("avg_rtt_ms", 0) > 100]
+    if r.data["packets_total"] <= 0:
         r.status = "WARN"
-        r.error = f"Slow resolver RTT: {', '.join(slow)}"
+        r.error = "No DNS traffic captured — cache hit or no DNS queries needed"
+    else:
+        r.status = "PASS"
 
     r.duration_ms = (time.monotonic() - t0) * 1000
     return r

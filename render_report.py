@@ -159,27 +159,37 @@ def verdict(d):
     c_transfer = d.get("curl_transfer_ms") or 0
     p_avg = d.get("ping_avg_ms") or 0
 
-    if c_server > 2000:
-        return f"SERVER: Server processing takes {c_server:.0f}ms — check app logic, DB queries, backend API calls"
-    if c_tls > 500:
-        return f"TLS: TLS handshake takes {c_tls:.0f}ms — check OCSP stapling, cipher negotiation, cert chain size"
-    if c_dns > 200:
-        return f"DNS: DNS resolution takes {c_dns:.0f}ms — check /etc/resolv.conf, resolver latency"
+    issues = []
     slowest = 0
     slow_ns = ""
     for r in d.get("resolver_results", []):
         if r.get("elapsed_ms", 0) > slowest:
             slowest = r["elapsed_ms"]
             slow_ns = r.get("resolver", "?")
-    if slowest > 200:
-        return f"DNS_RESOLVER: Resolver {slow_ns} takes {slowest:.0f}ms — remove or reorder in /etc/resolv.conf"
     if p_avg > 100:
-        return f"NETWORK: Baseline RTT {p_avg:.0f}ms — check ISP peering, F5, VPN, routing"
+        issues.append("NETWORK")
+    if c_server > 2000:
+        issues.append("SERVER")
+    if c_tls > 500:
+        issues.append("TLS")
+    if c_dns > 200:
+        issues.append("DNS")
+    if slowest > 200:
+        issues.append(f"DNS resolver {slow_ns} at {slowest}ms")
+    if slowest > 100:
+        issues.append(f"DNS resolver {slow_ns} is {slowest:.0f}ms — slow")
+    if d.get("port_status") == "FAIL":
+        issues.append(f"Port {d.get('_port','')} is CLOSED")
     if d.get("_mtr_spikes"):
-        count = d["_mtr_spikes"].count("<br>") + 1
-        return f"NETWORK_HOP: {count} latency spike{'s' if count > 1 else ''} detected<br>{d['_mtr_spikes']}"
-    if c_transfer > 2000:
-        return f"PAYLOAD: Content transfer takes {c_transfer:.0f}ms — enable compression, use CDN, reduce asset size"
+        for line in d["_mtr_spikes"].split("<br>"):
+            issues.append(f"MTR {line}")
+
+    if issues:
+        if len(issues) == 1:
+            detail = issues[0]
+        else:
+            detail = "<br>".join(f"• {i}" for i in issues)
+        return f"ISSUES: {detail}"
     return "OK: No bottleneck detected — all metrics within normal ranges"
 
 

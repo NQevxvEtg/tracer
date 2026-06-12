@@ -50,7 +50,7 @@ What to look for: WebLogic console latency (server processing time), DB listener
 ssh user@laptop 'python3 - --json -p 443 internal-app.corp.com' < tracer.py > facts.json
 ```
 
-Look at: Local Route (interface name — `wgivpn`, `tun0`), hop 1 RTT. A slow gateway + VPN interface = VPN overhead.
+Look at: Local Route (interface name — `tun0`, `ens192`), hop 1 RTT. A slow gateway + VPN interface = VPN overhead.
 
 ### DNS Problem (FreeIPA, AD DNS)
 
@@ -81,7 +81,7 @@ Cuts runtime from ~90s to ~15s. Good for initial triage or slow connections.
 
 | Section | What it shows | For |
 |---------|--------------|-----|
-| Verdict | NETWORK / SERVER / DNS / TLS / OK | Instant diagnosis |
+| Verdict | NETWORK / SERVER / DNS / TLS / NETWORK_HOP / OK | Instant diagnosis |
 | Key Metrics | Ping RTT, packet loss, port status | Quick health check |
 | Request Timing | DNS → TCP → TLS → Server → Transfer breakdown | Where latency goes |
 | HTTP / TLS | Protocol version, cipher, key exchange | Modern protocol check |
@@ -96,22 +96,18 @@ Cuts runtime from ~90s to ~15s. Good for initial triage or slow connections.
 ## Output Formats
 
 ```bash
-# JSON (for automation)
+# JSON (for automation — default output is terminal)
 ssh user@host 'python3 - --json -p 443 example.com' < tracer.py
 
-# Markdown (for docs)
-ssh user@host 'python3 - --md --stdout -p 443 example.com' < tracer.py
-
-# Markdown to file
-ssh user@host 'python3 - --md -p 443 example.com' < tracer.py
-# writes tracer-report-example.com-20260612-120000.md to CWD
+# Terminal report (default, no flag needed)
+ssh user@host 'python3 - -p 443 example.com' < tracer.py
 ```
 
 ## Requirements
 
 **Target host:** Python 3.6+, standard Linux tools (`ping`, `dig`, `curl`, `mtr`, `ss`, `nc`, `tcpdump` optional).
 
-**Render host:** Python 3.6+, no dependencies. Chart.js embedded inline (no network needed to view).
+**Render host:** Python 3.6+, no dependencies. Pure static HTML — no JavaScript, no external resources.
 
 ## Files
 
@@ -130,3 +126,4 @@ tracer/
 - If the target is a hostname, it resolves on the remote host — tests actual DNS path
 - If the target is an IP, DNS checks are skipped
 - The HTML report is fully self-contained — share it as a single file
+- Use `--demo` with `render_report.py` to sanitize hostnames/IPs for screenshots

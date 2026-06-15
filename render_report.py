@@ -404,12 +404,20 @@ def render(data, demo=False):
         rows.append("<h2>Per-Resolver Timing</h2>")
         rows.append(f"<div class='cmd-sub'>dig @NS +short +time=3 +tries=1 {target}</div>")
         rows.append("<table>")
-        rows.append("<tr><th>Resolver</th><th>Response</th><th>Status</th></tr>")
+        rows.append("<tr><th>Resolver</th><th>Response</th><th>Rating</th><th>Status</th></tr>")
         for r in results:
             ok = r.get("success", r.get("status") == "OK")
             st = "OK" if ok else "FAIL"
+            ms = r.get("elapsed_ms", 0)
+            if ms <= 20:
+                rating_css, rating_label = "good", "good"
+            elif ms <= 100:
+                rating_css, rating_label = "okr", "ok"
+            else:
+                rating_css, rating_label = "badr", "slow"
             rows.append(f"<tr><td>{r.get('resolver','?')}</td>"
                         f"<td>{r.get('elapsed_ms','?')}ms</td>"
+                        f"<td class='{rating_css}'>{rating_label}</td>"
                         f"<td class='{'fail' if st == 'FAIL' else ''}'>{st}</td></tr>")
         rows.append("</table>")
 
